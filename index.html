@@ -80,6 +80,16 @@ form.gajiform{grid-template-columns:1fr auto}
   </section>
 
   <section class="card">
+    <h2>Simpanan <small id="savingTotal"></small></h2>
+    <div id="savingList"></div>
+    <form id="formSaving" class="add" style="margin-top:10px">
+      <input type="text" id="savingName" placeholder="Nama (cth: Tabung, ASB)" required>
+      <input type="number" id="savingBal" step="0.01" min="0" placeholder="Baki (RM)" required>
+      <button class="add" type="submit">Tambah</button>
+    </form>
+  </section>
+
+  <section class="card">
     <h2>Tambah item</h2>
     <form id="formAdd" class="add">
       <input type="text" id="addName" placeholder="Nama (cth: Netflix)" required>
@@ -136,6 +146,7 @@ function row(b){
 function render(){
   $("month").value = month;
   renderHutang();
+  renderSavings();
   const all = items();
   const unpaid = all.filter(b=>!b.paid);
   const paid = all.filter(b=>b.paid);
@@ -238,6 +249,53 @@ document.addEventListener("click", e=>{
   }
 });
 
+function renderSavings(){
+  db.savings = db.savings || [];
+  const list = db.savings;
+  $("savingTotal").textContent = money(list.reduce((a,s)=>a+s.balance,0));
+  $("savingList").innerHTML = list.length
+    ? list.map(s=>`<div class="item">
+        <span class="lbl">${esc(s.name)}</span>
+        <span class="amt">${money(s.balance)}</span>
+        <input type="number" class="saveAmt" data-id="${s.id}" step="0.01" min="0" placeholder="RM" style="width:90px;padding:6px;border:1px solid var(--line);border-radius:8px;font:inherit">
+        <button class="add" data-simpan="in" data-sid="${s.id}" style="padding:6px 10px">Masuk</button>
+        <button class="add" data-simpan="out" data-sid="${s.id}" style="padding:6px 10px;background:#c0392b">Keluar</button>
+        <button class="del" data-savdel="${s.id}" title="Padam">×</button>
+      </div>`).join("")
+    : '<div class="empty">Tiada simpanan lagi.</div>';
+}
+
+$("formSaving").onsubmit = e=>{
+  e.preventDefault();
+  const n = $("savingName").value.trim(), b = parseFloat($("savingBal").value);
+  if(!n || !(b>=0)) return;
+  db.savings = db.savings || [];
+  db.savings.push({id:uid(), name:n, balance:b});
+  save();
+  $("savingName").value = ""; $("savingBal").value = "";
+  render();
+};
+
+document.addEventListener("click", e=>{
+  const sim = e.target.closest("[data-simpan]");
+  const sdel = e.target.closest("[data-savdel]");
+  if(sim){
+    const id = sim.dataset.sid;
+    const inp = document.querySelector('.saveAmt[data-id="'+id+'"]');
+    const amt = parseFloat(inp && inp.value);
+    const s = (db.savings||[]).find(x=>x.id===id);
+    if(!s || !(amt>0)) return;
+    s.balance = sim.dataset.simpan === "in" ? s.balance + amt : Math.max(0, s.balance - amt);
+    save();
+    render();
+  } else if(sdel){
+    if(!confirm("Padam simpanan ni?")) return;
+    db.savings = (db.savings||[]).filter(x=>x.id !== sdel.dataset.savdel);
+    save();
+    render();
+  }
+});
+
 render();
 </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}</script>
@@ -264,7 +322,8 @@ let unsub = null, applying = false;
 function isEmpty(d){
   const hasItems = Object.values((d && d.months) || {}).some(a => Array.isArray(a) && a.length > 0);
   const hasDebts = !!(d && d.debts && d.debts.length);
-  return !hasItems && !hasDebts;
+  const hasSavings = !!(d && d.savings && d.savings.length);
+  return !hasItems && !hasDebts && !hasSavings;
 }
 
 // Dipanggil setiap kali save() — hantar data ke Firestore kalau dah log masuk
