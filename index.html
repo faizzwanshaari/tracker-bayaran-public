@@ -260,9 +260,16 @@ const ref = doc(fsdb, "tracker", "data");
 const ALLOWED_EMAIL = "faizzwanshaari98@gmail.com";
 let unsub = null, applying = false;
 
+// Data kosong tak boleh timpa data yang ada
+function isEmpty(d){
+  const hasItems = Object.values((d && d.months) || {}).some(a => Array.isArray(a) && a.length > 0);
+  const hasDebts = !!(d && d.debts && d.debts.length);
+  return !hasItems && !hasDebts;
+}
+
 // Dipanggil setiap kali save() — hantar data ke Firestore kalau dah log masuk
 window.__upload = (data) => {
-  if (applying || !auth.currentUser) return;
+  if (applying || !auth.currentUser || isEmpty(data)) return;
   setDoc(ref, { payload: JSON.stringify(data), updated: Date.now() }).catch(e => console.error(e));
 };
 
@@ -282,11 +289,15 @@ onAuthStateChanged(auth, async (user) => {
   btn.textContent = "Log keluar";
   info("Sync: " + user.email);
   const snap = await getDoc(ref);
-  if (!snap.exists()) window.__upload(db);
+  const remoteEmpty = !snap.exists() || isEmpty(JSON.parse(snap.data().payload || "{}"));
+  if (remoteEmpty && !isEmpty(db)) window.__upload(db);
   unsub = onSnapshot(ref, (s) => {
     if (!s.exists()) return;
     const remote = s.data().payload;
-    if (remote && remote !== JSON.stringify(db)) {
+    if (!remote) return;
+    if (isEmpty(JSON.parse(remote))) return;
+    if (remote !== JSON.stringify(db)) {
+      if (!isEmpty(db)) localStorage.setItem(KEY + "-backup", JSON.stringify(db));
       applying = true;
       db = JSON.parse(remote);
       localStorage.setItem(KEY, remote);
