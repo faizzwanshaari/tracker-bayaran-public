@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tracker Bayaran</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#2f7d5b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#1d2430;--muted:#6b7585;--line:#e3e7ee;--accent:#2f7d5b;--bad:#c0392b}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4}
+header{background:var(--accent);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+header h1{font-size:18px;margin:0}
+header input{font:inherit;padding:6px 8px;border:0;border-radius:8px}
+main{max-width:600px;margin:0 auto;padding:14px;display:grid;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{font-size:15px;margin:0 0 6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.card h2 small{font-weight:400;color:var(--muted)}
+.muted{color:var(--muted);font-size:12px}
+.item{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item input[type=checkbox]{width:20px;height:20px;flex:none}
+.item input.amt{width:110px;padding:6px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.done{text-decoration:line-through;color:var(--muted)}
+.del{background:none;color:var(--muted);padding:2px 8px;font-size:18px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}
+form.add{display:grid;grid-template-columns:1fr 110px auto;gap:8px;margin-top:10px}
+input{font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:0}
+button.add{font:inherit;padding:9px 14px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer}
+.unpaid h2{color:var(--bad)}
+.paid h2{color:var(--accent)}
+@media (max-width:480px){form.add{grid-template-columns:1fr 1fr}form.add input:first-child{grid-column:span 2}}
+</style>
+</head>
+<body>
+<header>
+  <h1>✅ Tracker Bayaran</h1>
+  <input type="month" id="month" aria-label="Pilih bulan">
+</header>
+
+<main>
+  <section class="card unpaid">
+    <h2>Belum bayar <small id="unpaidTotal"></small></h2>
+    <div id="unpaidList"></div>
+  </section>
+
+  <section class="card paid">
+    <h2>Dah bayar <small id="paidTotal"></small></h2>
+    <div id="paidList"></div>
+  </section>
+
+  <section class="card">
+    <h2>Tambah item</h2>
+    <form id="formAdd" class="add">
+      <input type="text" id="addName" placeholder="Nama (cth: Netflix)" required>
+      <input type="number" id="addAmt" step="0.01" min="0" placeholder="RM" required>
+      <button class="add" type="submit">Tambah</button>
+    </form>
+  </section>
+</main>
+
+<script>
+// Senarai Nov 2026 ikut sheet GAJI 2026. Kuning dalam sheet = dah bayar.
+const DEFAULT_ITEMS = [];
+const KEY = "bil-bayar-v2";
+
+let db;
+try{ db = JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+if(!db || !db.months) db = {months:{}};
+function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+
+function $(id){ return document.getElementById(id); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function money(n){ return "RM " + (Number(n)||0).toLocaleString("ms-MY",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+let month = todayStr().slice(0,7);
+
+function items(){
+  if(!db.months[month]){
+    db.months[month] = DEFAULT_ITEMS.map(b=>({
+      id:uid(), name:b.name, tag:b.tag, amount:b.amount,
+      paid: false
+    }));
+    save();
+  }
+  return db.months[month];
+}
+function sum(arr){ return arr.reduce((a,b)=>a+b.amount,0); }
+
+function row(b){
+  return `<div class="item">
+    <input type="checkbox" class="paid" data-id="${b.id}" ${b.paid?"checked":""} title="Dah bayar">
+    <span class="lbl ${b.paid?"done":""}">${esc(b.name)}${b.tag?` <small class="muted">(${esc(b.tag)})</small>`:""}</span>
+    <input type="number" class="amt" data-id="${b.id}" step="0.01" min="0" value="${b.amount}">
+    <button class="del" data-del="${b.id}" title="Padam">×</button>
+  </div>`;
+}
+
+function render(){
+  $("month").value = month;
+  const all = items();
+  const unpaid = all.filter(b=>!b.paid);
+  const paid = all.filter(b=>b.paid);
+  $("unpaidTotal").textContent = money(sum(unpaid));
+  $("paidTotal").textContent = money(sum(paid));
+  $("unpaidList").innerHTML = unpaid.length ? unpaid.map(row).join("") : '<div class="empty">Tiada item lagi. Tambah di bawah.</div>';
+  $("paidList").innerHTML = paid.length ? paid.map(row).join("") : '<div class="empty">Belum ada yang dibayar.</div>';
+}
+
+$("month").onchange = e=>{ if(e.target.value){ month = e.target.value; render(); } };
+
+$("formAdd").onsubmit = e=>{
+  e.preventDefault();
+  const name = $("addName").value.trim(), amt = parseFloat($("addAmt").value);
+  if(!name || !(amt>=0)) return;
+  items().push({id:uid(), name, tag:"", amount:amt, paid:false});
+  save();
+  $("addName").value = ""; $("addAmt").value = "";
+  render();
+};
+
+document.addEventListener("change", e=>{
+  const t = e.target;
+  if(!t.dataset || !t.dataset.id) return;
+  const b = items().find(x=>x.id === t.dataset.id);
+  if(!b) return;
+  if(t.classList.contains("paid")) b.paid = t.checked;
+  else if(t.classList.contains("amt")) b.amount = Math.max(0, parseFloat(t.value)||0);
+  save();
+  render();
+});
+
+document.addEventListener("click", e=>{
+  const btn = e.target.closest("[data-del]");
+  if(!btn) return;
+  if(!confirm("Padam item ni?")) return;
+  db.months[month] = items().filter(x=>x.id !== btn.dataset.del);
+  save();
+  render();
+});
+
+render();
+</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}</script>
+</body>
+</html>
