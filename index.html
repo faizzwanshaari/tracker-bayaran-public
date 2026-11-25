@@ -107,9 +107,11 @@ let month = todayStr().slice(0,7);
 
 function items(){
   if(!db.months[month]){
-    db.months[month] = DEFAULT_ITEMS.map(b=>({
-      id:uid(), name:b.name, tag:b.tag, amount:b.amount,
-      paid: false
+    // Bulan baru: salin senarai dari bulan terakhir yang ada (amount kekal, semua reset belum bayar)
+    const prev = Object.keys(db.months).filter(k=>k < month).sort().pop();
+    const base = prev ? db.months[prev] : DEFAULT_ITEMS;
+    db.months[month] = base.map(b=>({
+      id:uid(), name:b.name, tag:b.tag||"", amount:b.amount, paid:false
     }));
     save();
   }
