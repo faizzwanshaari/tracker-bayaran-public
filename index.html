@@ -66,6 +66,16 @@ form.gajiform{grid-template-columns:1fr auto}
   </section>
 
   <section class="card">
+    <h2>Hutang <small id="hutangTotal"></small></h2>
+    <div id="hutangList"></div>
+    <form id="formHutang" class="add" style="margin-top:10px">
+      <input type="text" id="hutangName" placeholder="Nama (cth: CIMB)" required>
+      <input type="number" id="hutangBaki" step="0.01" min="0" placeholder="Baki (RM)" required>
+      <button class="add" type="submit">Tambah</button>
+    </form>
+  </section>
+
+  <section class="card">
     <h2>Tambah item</h2>
     <form id="formAdd" class="add">
       <input type="text" id="addName" placeholder="Nama (cth: Netflix)" required>
@@ -119,6 +129,7 @@ function row(b){
 
 function render(){
   $("month").value = month;
+  renderHutang();
   const all = items();
   const unpaid = all.filter(b=>!b.paid);
   const paid = all.filter(b=>b.paid);
@@ -173,6 +184,52 @@ document.addEventListener("click", e=>{
   db.months[month] = items().filter(x=>x.id !== btn.dataset.del);
   save();
   render();
+});
+
+function renderHutang(){
+  db.debts = db.debts || [];
+  const debts = db.debts;
+  $("hutangTotal").textContent = money(debts.reduce((a,d)=>a+d.balance,0));
+  $("hutangList").innerHTML = debts.length
+    ? debts.map(d=>`<div class="item">
+        <span class="lbl">${esc(d.name)}</span>
+        <span class="amt">${money(d.balance)}</span>
+        <input type="number" class="bayarAmt" data-id="${d.id}" step="0.01" min="0" placeholder="RM" style="width:90px;padding:6px;border:1px solid var(--line);border-radius:8px;font:inherit">
+        <button class="add" data-bayar="${d.id}" style="padding:6px 10px">Tolak</button>
+        <button class="del" data-hutdel="${d.id}" title="Padam">×</button>
+      </div>`).join("")
+    : '<div class="empty">Tiada hutang lagi.</div>';
+}
+
+$("formHutang").onsubmit = e=>{
+  e.preventDefault();
+  const n = $("hutangName").value.trim(), b = parseFloat($("hutangBaki").value);
+  if(!n || !(b>=0)) return;
+  db.debts = db.debts || [];
+  db.debts.push({id:uid(), name:n, balance:b});
+  save();
+  $("hutangName").value = ""; $("hutangBaki").value = "";
+  render();
+};
+
+document.addEventListener("click", e=>{
+  const bayar = e.target.closest("[data-bayar]");
+  const hdel = e.target.closest("[data-hutdel]");
+  if(bayar){
+    const id = bayar.dataset.bayar;
+    const inp = document.querySelector('.bayarAmt[data-id="'+id+'"]');
+    const amt = parseFloat(inp && inp.value);
+    const d = (db.debts||[]).find(x=>x.id===id);
+    if(!d || !(amt>0)) return;
+    d.balance = Math.max(0, d.balance - amt);
+    save();
+    render();
+  } else if(hdel){
+    if(!confirm("Padam hutang ni?")) return;
+    db.debts = (db.debts||[]).filter(x=>x.id !== hdel.dataset.hutdel);
+    save();
+    render();
+  }
 });
 
 render();
