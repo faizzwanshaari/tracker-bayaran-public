@@ -43,6 +43,10 @@ form.gajiform{grid-template-columns:1fr auto}
 <header>
   <h1>✅ Tracker Bayaran</h1>
   <input type="month" id="month" aria-label="Pilih bulan">
+  <div style="width:100%;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button id="btnLogin" type="button" style="font:inherit;padding:6px 12px;border:0;border-radius:8px;background:#fff;color:#2f7d5b;cursor:pointer">Log masuk Google</button>
+    <span id="authInfo" style="font-size:12px;opacity:.9"></span>
+  </div>
 </header>
 
 <main>
@@ -93,7 +97,7 @@ const KEY = "bil-bayar-v2";
 let db;
 try{ db = JSON.parse(localStorage.getItem(KEY)); }catch(e){}
 if(!db || !db.months) db = {months:{}};
-function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+function save(){ localStorage.setItem(KEY, JSON.stringify(db)); if(window.__upload) window.__upload(db); }
 
 function $(id){ return document.getElementById(id); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -237,5 +241,60 @@ document.addEventListener("click", e=>{
 render();
 </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}</script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyCI_zbhZHGItCdwbZqNm32d_JCBrzIcIfk",
+  authDomain: "tracker-bayaran.firebaseapp.com",
+  projectId: "tracker-bayaran",
+  storageBucket: "tracker-bayaran.firebasestorage.app",
+  messagingSenderId: "551361477255",
+  appId: "1:551361477255:web:3f35053ce912b1ab9e5622"
+});
+const auth = getAuth(app);
+const fsdb = getFirestore(app);
+const ref = doc(fsdb, "tracker", "data");
+const ALLOWED_EMAIL = "faizzwanshaari98@gmail.com";
+let unsub = null, applying = false;
+
+// Dipanggil setiap kali save() — hantar data ke Firestore kalau dah log masuk
+window.__upload = (data) => {
+  if (applying || !auth.currentUser) return;
+  setDoc(ref, { payload: JSON.stringify(data), updated: Date.now() }).catch(e => console.error(e));
+};
+
+const btn = document.getElementById("btnLogin");
+const info = (t) => { document.getElementById("authInfo").textContent = t; };
+
+btn.onclick = async () => {
+  if (auth.currentUser) { await signOut(auth); return; }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) { info("Log masuk gagal: " + (e.code || e.message)); }
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if (unsub) { unsub(); unsub = null; }
+  if (!user) { btn.textContent = "Log masuk Google"; info("Data hanya dalam browser ni"); return; }
+  if (user.email !== ALLOWED_EMAIL) { info("Akaun ni tak dibenarkan"); await signOut(auth); return; }
+  btn.textContent = "Log keluar";
+  info("Sync: " + user.email);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) window.__upload(db);
+  unsub = onSnapshot(ref, (s) => {
+    if (!s.exists()) return;
+    const remote = s.data().payload;
+    if (remote && remote !== JSON.stringify(db)) {
+      applying = true;
+      db = JSON.parse(remote);
+      localStorage.setItem(KEY, remote);
+      applying = false;
+      render();
+    }
+  });
+});
+</script>
 </body>
 </html>
